@@ -107,4 +107,4 @@ gcc -I/usr/local/zookeeper-3.4.8/src/c/include -I/usr/local/zookeeper-3.4.8/src/
 
 Have fun!
 
-Devin is me. haha
+Devin is me. houhou~
