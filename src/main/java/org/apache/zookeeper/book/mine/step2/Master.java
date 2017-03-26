@@ -13,6 +13,7 @@ import java.util.Random;
 
 
 public class Master implements Watcher {
+    
     private static final Logger LOG = LoggerFactory.getLogger(Master.class);
 
     enum MasterStates {RUNNING, ELECTED, NOTELECTED};
