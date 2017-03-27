@@ -1,12 +1,10 @@
 package org.apache.zookeeper.book.mine.step2;
 
-import org.apache.zookeeper.KeeperException.*;
-import org.apache.zookeeper.Watcher.Event.*;
-import org.apache.zookeeper.AsyncCallback.*;
-import org.apache.zookeeper.ZooDefs.*;
 import org.apache.zookeeper.*;
-import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.AsyncCallback.*;
+import org.apache.zookeeper.KeeperException.Code;
+import org.apache.zookeeper.Watcher.Event.EventType;
+import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.book.ChildrenCache;
 import org.apache.zookeeper.data.Stat;
 
@@ -96,7 +94,7 @@ public class Worker implements Watcher {
     private void createAssignNode() {
         zk.create("/assign/" + name,
                 new byte[0],
-                ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                Ids.OPEN_ACL_UNSAFE,
                 CreateMode.EPHEMERAL,
                 assignStringCallback,
                 null);
@@ -106,7 +104,7 @@ public class Worker implements Watcher {
     AsyncCallback.StringCallback assignStringCallback = new AsyncCallback.StringCallback() {
         @Override
         public void processResult(int rc, String path, Object ctx, String name) {
-            switch (KeeperException.Code.get(rc)) {
+            switch (Code.get(rc)) {
                 case CONNECTIONLOSS:
                     createAssignNode();
 
