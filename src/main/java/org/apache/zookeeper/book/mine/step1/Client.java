@@ -1,6 +1,8 @@
 package org.apache.zookeeper.book.mine.step1;
 
 import org.apache.zookeeper.*;
+import org.apache.zookeeper.KeeperException.*;
+import org.apache.zookeeper.ZooDefs.*;
 
 import java.io.IOException;
 
@@ -29,12 +31,12 @@ public class Client implements Watcher {
             try {
                 String name = zk.create("/tasks/task=",
                                         command.getBytes(),
-                                        ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                                        Ids.OPEN_ACL_UNSAFE,
                                         CreateMode.PERSISTENT_SEQUENTIAL);
                 return name;
-            } catch (KeeperException.ConnectionLossException e) {
+            } catch (ConnectionLossException e) {
 
-            } catch (KeeperException.NodeExistsException e) {
+            } catch (NodeExistsException e) {
                 // TODO: 2017/3/8 有序节点不会出现重复的
                 e.printStackTrace();
             }
