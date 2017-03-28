@@ -349,99 +349,99 @@ public class Worker implements Watcher, Closeable {
                         LOG.info("Executing your task: " + new String(data));
                         zk.create("/status/" + (String) ctx, "done".getBytes(), Ids.OPEN_ACL_UNSAFE, 
                                 CreateMode.PERSISTENT, taskStatusCreateCallback, null);
-                        zk.delete("/assign/worker-" + serverId + "/" + (String) ctx, 
-                                -1, taskVoidCallback, null);
-                    }
-                }.init(data, ctx));
-                
-                break;
-            default:
-                LOG.error("Failed to get task data: ", KeeperException.create(Code.get(rc), path));
-            }
+            zk.delete("/assign/worker-" + serverId + "/" + (String) ctx,
+                    -1, taskVoidCallback, null);
         }
-    };
-    
-    StringCallback taskStatusCreateCallback = new StringCallback(){
-        public void processResult(int rc, String path, Object ctx, String name) {
-            switch(Code.get(rc)) {
-            case CONNECTIONLOSS:
-                // TODO: 2017/3/17 path 错了吧!!!
-                zk.create(path + "/status", "done".getBytes(), Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT,
-                        taskStatusCreateCallback, null);
-                break;
-            case OK:
-                LOG.info("Created status znode correctly: " + name);
-                break;
-            case NODEEXISTS:
-                LOG.warn("Node exists: " + path);
-                break;
-            default:
-                LOG.error("Failed to create task data: ", KeeperException.create(Code.get(rc), path));
-            }
-            
+    }.init(data, ctx));
+
+    break;
+    default:
+            LOG.error("Failed to get task data: ", KeeperException.create(Code.get(rc), path));
+}
+}
+        };
+
+        StringCallback taskStatusCreateCallback = new StringCallback(){
+public void processResult(int rc, String path, Object ctx, String name) {
+        switch(Code.get(rc)) {
+        case CONNECTIONLOSS:
+        // TODO: 2017/3/17 path 错了吧!!!
+        zk.create(path + "/status", "done".getBytes(), Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT,
+        taskStatusCreateCallback, null);
+        break;
+        case OK:
+        LOG.info("Created status znode correctly: " + name);
+        break;
+        case NODEEXISTS:
+        LOG.warn("Node exists: " + path);
+        break;
+default:
+        LOG.error("Failed to create task data: ", KeeperException.create(Code.get(rc), path));
         }
-    };
-    
-    VoidCallback taskVoidCallback = new VoidCallback(){
-        public void processResult(int rc, String path, Object rtx){
-            switch(Code.get(rc)) {
-            case CONNECTIONLOSS:
-                break;
-            case OK:
-                LOG.info("Task correctly deleted: " + path);
-                break;
-            default:
-                LOG.error("Failed to delete task data" + KeeperException.create(Code.get(rc), path));
-            } 
+
         }
-    };
-    
-    /**
-     * Closes the ZooKeeper session.
-     */
-    @Override
-    public void close() 
-            throws IOException
-    {
+        };
+
+        VoidCallback taskVoidCallback = new VoidCallback(){
+public void processResult(int rc, String path, Object rtx){
+        switch(Code.get(rc)) {
+        case CONNECTIONLOSS:
+        break;
+        case OK:
+        LOG.info("Task correctly deleted: " + path);
+        break;
+default:
+        LOG.error("Failed to delete task data" + KeeperException.create(Code.get(rc), path));
+        }
+        }
+        };
+
+/**
+ * Closes the ZooKeeper session.
+ */
+@Override
+public void close()
+        throws IOException
+        {
         LOG.info( "Closing" );
         try{
-            zk.close();
+        zk.close();
         } catch (InterruptedException e) {
-            LOG.warn("ZooKeeper interrupted while closing");
+        LOG.warn("ZooKeeper interrupted while closing");
         }
-    }
-    
-    /**
-     * Main method showing the steps to execute a worker.
-     * 
-     * @param args
-     * @throws Exception
-     */
-    public static void main(String args[]) throws Exception { 
+        }
+
+/**
+ * Main method showing the steps to execute a worker.
+ *
+ * @param args
+ * @throws Exception
+ */
+public static void main(String args[]) throws Exception {
         Worker w = new Worker(args[0]);
         w.startZK();
-        
+
         while(!w.isConnected()){
-            Thread.sleep(100);
-        }   
+        Thread.sleep(100);
+        }
         /*
          * bootstrap() create some necessary znodes.
          */
         w.bootstrap();
-        
+
         /*
          * Registers this worker so that the leader knows that
          * it is here.
          */
         w.register();
-        
+
         /*
          * Getting assigned tasks.
          */
         w.getTasks();
-        
+
         while(!w.isExpired()){
-            Thread.sleep(1000);
+        Thread.sleep(1000);
         }
         
     }

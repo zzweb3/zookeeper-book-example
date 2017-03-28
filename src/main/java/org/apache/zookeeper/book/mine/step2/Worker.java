@@ -283,7 +283,7 @@ public class Worker implements Watcher {
                             zk.create("/status/" + (String) ctx,
                                     "Done".getBytes(),
                                     ZooDefs.Ids.OPEN_ACL_UNSAFE,
-                                    CreateMode.EPHEMERAL,
+                                    CreateMode.PERSISTENT,
                                     taskStatusCreateCallback,
                                     null);
                             zk.delete("/assign/" + name + "/" + (String) ctx,
