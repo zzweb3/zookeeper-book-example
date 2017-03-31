@@ -65,7 +65,7 @@ public class CuratorMaster implements LeaderSelectorListener{
 						System.out.println("Successfully got a list of assignments: " +
 										event.getChildren().size() +
 										" tasks.");
-					
+
 
 					}
 
