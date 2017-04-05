@@ -15,6 +15,9 @@ import org.apache.curator.framework.recipes.leader.LeaderSelectorListener;
 import org.apache.curator.framework.state.ConnectionState;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.book.recovery.RecoveredAssignments;
+import org.apache.zookeeper.book.recovery.RecoveredAssignments.*;
+
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -67,6 +70,19 @@ public class CuratorMaster implements Closeable, LeaderSelectorListener{
 		 */
 		workersCache.getListenable().addListener(workersCacheListener);
 		workersCache.start();
+
+		RecoveredAssignments recoveredAssignments = new RecoveredAssignments(client.getZookeeperClient().getZooKeeper());
+		recoveredAssignments.recover(new RecoveryCallback() {
+			@Override
+			public void recoveryComplete(int rc, List<String> tasks) {
+				if (RecoveryCallback.FAILED == rc) {
+					System.out.println("Recovery of assigned tasks fails.");
+				} else {
+					recoveryLatch = new CountDownLatch(tasks.size());
+
+				}
+			}
+		});
 
 	}
 
@@ -180,12 +196,17 @@ public class CuratorMaster implements Closeable, LeaderSelectorListener{
 
 	PathChildrenCacheListener workersCacheListener = new PathChildrenCacheListener() {
 		@Override
-		public void childEvent(CuratorFramework client, PathChildrenCacheEvent event) throws Exception {
+		public void childEvent(CuratorFramework client, PathChildrenCacheEvent event) {
 			if (PathChildrenCacheEvent.Type.CHILD_REMOVED == event.getType()) {
 				/*
 				 * Obtain just the worker's name
 				 */
-				getAbsentWorkerTasks(event.getData().getPath().replaceFirst("/workers/", ""));
+				try {
+					getAbsentWorkerTasks(event.getData().getPath().replaceFirst("/workers/", ""));
+				} catch (Exception e) {
+					System.out.println("Exception while trying to re-assign tasks. " + e.getMessage());
+					e.printStackTrace();
+				}
 			}
 		}
 	};
