@@ -459,6 +459,8 @@ public class CuratorMaster implements Closeable, LeaderSelectorListener{
             master.startZK();
             master.bootstrap();
             master.runForMaster();
+
+            Thread.sleep(600000);
         } catch (Exception e) {
             LOG.error("Exception while running curator master.", e);
         }
