@@ -15,12 +15,15 @@ import org.apache.curator.framework.recipes.leader.LeaderSelectorListener;
 import org.apache.curator.framework.state.ConnectionState;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.Op;
+import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.book.recovery.RecoveredAssignments;
 import org.apache.zookeeper.book.recovery.RecoveredAssignments.*;
 
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
@@ -75,12 +78,37 @@ public class CuratorMaster implements Closeable, LeaderSelectorListener{
 		recoveredAssignments.recover(new RecoveryCallback() {
 			@Override
 			public void recoveryComplete(int rc, List<String> tasks) {
-				if (RecoveryCallback.FAILED == rc) {
-					System.out.println("Recovery of assigned tasks fails.");
-				} else {
-					recoveryLatch = new CountDownLatch(tasks.size());
-
+				try {
+					if (RecoveryCallback.FAILED == rc) {
+						System.out.println("Recovery of assigned tasks fails.");
+					} else {
+						recoveryLatch = new CountDownLatch(tasks.size());
+						assignTasks(tasks);
+					}
+				} catch (Exception e) {
+					e.printStackTrace();
 				}
+
+				new Thread(new Runnable() {
+					@Override
+					public void run() {
+						try {
+							/*
+							 * Wait until recovery is complete
+							 */
+							recoveryLatch.await();
+
+							/*
+							 * Start tasks cache
+							 */
+							tasksCache.getListenable().addListener(tasksCacheListener);
+							tasksCache.start();
+
+						} catch (Exception e) {
+							e.printStackTrace();
+						}
+					}
+				}).start();
 			}
 		});
 
@@ -211,6 +239,21 @@ public class CuratorMaster implements Closeable, LeaderSelectorListener{
 		}
 	};
 
+
+	PathChildrenCacheListener tasksCacheListener = new PathChildrenCacheListener() {
+		@Override
+		public void childEvent(CuratorFramework client, PathChildrenCacheEvent event) {
+			if (PathChildrenCacheEvent.Type.CHILD_ADDED == event.getType()) {
+				try {
+					assignTask(event.getData().getPath().replaceFirst("/tasks/", ""), event.getData().getData());
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+			}
+		}
+	};
+
+
 	private void getAbsentWorkerTasks(String worker) throws Exception {
 		/*
 		 * Get assigned tasks
@@ -314,10 +357,26 @@ public class CuratorMaster implements Closeable, LeaderSelectorListener{
 		try {
 			CuratorMaster master = new CuratorMaster(args[0], args[1], new ExponentialBackoffRetry(1000, 5) );
 			master.startZK();
-			//master.bootstrap();
+			master.bootstrap();
 			master.runForMaster();
 
-			Thread.sleep(600000);
+			Thread.sleep(60000);
+
+			//清除znode
+			ZooKeeper zk = master.client.getZookeeperClient().getZooKeeper();
+			Op opMaster = Op.delete("/master", -1);
+			zk.multi(Arrays.asList(opMaster));
+
+			List<Op> tasksOps = Arrays.asList();
+			List<String> tasksChildren = zk.getChildren("/tasks", false);
+			for (String child : tasksChildren) {
+				tasksOps.add(Op.delete("/tasks/"+child, -1));
+			}
+			zk.multi(tasksOps);
+
+			zk.delete("/assign", -1);
+			zk.delete("/status", -1);
+			zk.delete("/workers", -1);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
