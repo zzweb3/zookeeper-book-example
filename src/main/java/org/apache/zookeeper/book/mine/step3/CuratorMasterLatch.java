@@ -14,11 +14,13 @@ import org.apache.curator.framework.recipes.leader.LeaderLatch;
 import org.apache.curator.framework.recipes.leader.LeaderLatchListener;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.book.recovery.RecoveredAssignments;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * author zhouwei.guo
@@ -37,6 +39,8 @@ public class CuratorMasterLatch implements Closeable, LeaderLatchListener{
 	 * Random variable we use to select a worker to perform a pending task.
 	 */
 	private Random rand = new Random(System.currentTimeMillis());
+
+	CountDownLatch recoveryLatch = new CountDownLatch(0);
 
 
 	/**
@@ -111,10 +115,27 @@ public class CuratorMasterLatch implements Closeable, LeaderLatchListener{
 						break;
 					case CREATE:
 						System.out.println("CREATE");
+						/*
+						 * Result of a create operation when assigning a task
+						 */
+						if (event.getPath().contains("/assign")) {
+							System.out.println("Task assign correctly: " + event.getName());
+							deleteTask(event.getPath().substring(event.getPath().lastIndexOf('-') + 1));
+						}
 
 						break;
 					case DELETE:
 						System.out.println("CREATE");
+						/*
+						 * We delete znodes in two accasions
+						 * 1- When reassigning tasks due to faulty worker
+						 * 2- Once we have assigned a task. we remove it from the list of pending tasks.
+						*/
+						if (event.getPath().contains("/tasks")) {
+							System.out.println("Result of delete operation: " + event.getResultCode() + ". " + event.getPath());
+						} else if (event.getPath().contains("/assign")) {
+							System.out.println("Task correctly deleted: " + event.getPath());
+						}
 
 						break;
 					case WATCHED:
@@ -142,8 +163,14 @@ public class CuratorMasterLatch implements Closeable, LeaderLatchListener{
 
 	UnhandledErrorListener errorsListener = new UnhandledErrorListener() {
 		@Override
-		public void unhandledError(String message, Throwable e) {
-
+		public void unhandledError(String message, Throwable t) {
+			System.out.println(t.getMessage());
+			try {
+				close();
+			} catch (IOException e) {
+				System.out.println("Exception when closing. " + e.getMessage());
+				e.printStackTrace();
+			}
 		}
 	};
 
@@ -160,6 +187,27 @@ public class CuratorMasterLatch implements Closeable, LeaderLatchListener{
 			}
 		}
 	};
+
+	PathChildrenCacheListener tasksCacheListener = new PathChildrenCacheListener() {
+		@Override
+		public void childEvent(CuratorFramework client, PathChildrenCacheEvent event) {
+			if (PathChildrenCacheEvent.Type.CHILD_ADDED == event.getType()) {
+				try {
+					assignTask(event.getData().getPath().replaceFirst("/tasks/", ""), event.getData().getData());
+				} catch (Exception e) {
+					System.out.println("Exception when assigning task. " + e.getMessage());
+					e.printStackTrace();
+				}
+			}
+		}
+	};
+
+
+	private void deleteTask(String number) throws Exception {
+		System.out.println("Deleting task: " + number);
+		client.delete().inBackground().forPath("/tasks/task-" + number);
+		recoveryLatch.countDown();
+	}
 
 	private void getAbsentWorkerTasks(String worker) throws Exception {
 		/*
@@ -204,12 +252,6 @@ public class CuratorMasterLatch implements Closeable, LeaderLatchListener{
 
 	}
 
-	/**
-	 * This is called when the LeaderLatch's state goes from hasLeadership = false to hasLeadership = true.
-	 * <p>
-	 * Note that it is possible that by the time this method call happens, hasLeadership has fallen back to false.  If
-	 * this occurs, you can expect {@link #notLeader()} to also be called.
-	 */
 	@Override
 	public void isLeader() {
 		try {
@@ -219,18 +261,55 @@ public class CuratorMasterLatch implements Closeable, LeaderLatchListener{
 			workersCache.getListenable().addListener(workersCacheListener);
 			workersCache.start();
 
+			RecoveredAssignments recoveredAssignments = new RecoveredAssignments(client.getZookeeperClient().getZooKeeper());
+			recoveredAssignments.recover(new RecoveredAssignments.RecoveryCallback() {
+				@Override
+				public void recoveryComplete(int rc, List<String> tasks) {
+					try {
+						if (RecoveredAssignments.RecoveryCallback.FAILED == rc) {
+							System.out.println("Recovery of assigned tasks failed.");
+						} else {
+							System.out.println("Assigning recoveryed tasks");
+							recoveryLatch = new CountDownLatch(tasks.size());
+							assignTasks(tasks);
+						}
+
+
+						new Thread(new Runnable() {
+							@Override
+							public void run() {
+								try {
+									/*
+									 * Wait until recovery is complete
+									 */
+									recoveryLatch.await();
+
+									/*
+									 * Start tasks cache
+									 */
+									tasksCache.getListenable().addListener(tasksCacheListener);
+									tasksCache.start();
+
+								} catch (Exception e) {
+									e.printStackTrace();
+								}
+
+							}
+						}).start();
+
+
+					} catch (Exception e) {
+						e.printStackTrace();
+					}
+				}
+			});
+
 
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
 	}
 
-	/**
-	 * This is called when the LeaderLatch's state goes from hasLeadership = true to hasLeadership = false.
-	 * <p>
-	 * Note that it is possible that by the time this method call happens, hasLeadership has become true.  If
-	 * this occurs, you can expect {@link #isLeader()} to also be called.
-	 */
 	@Override
 	public void notLeader() {
 		try {
@@ -241,22 +320,10 @@ public class CuratorMasterLatch implements Closeable, LeaderLatchListener{
 		}
 	}
 
-	/**
-	 * Closes this stream and releases any system resources associated
-	 * with it. If the stream is already closed then invoking this
-	 * method has no effect.
-	 * <p>
-	 * <p> As noted in {@link AutoCloseable#close()}, cases where the
-	 * close may fail require careful attention. It is strongly advised
-	 * to relinquish the underlying resources and to internally
-	 * <em>mark</em> the {@code Closeable} as closed, prior to throwing
-	 * the {@code IOException}.
-	 *
-	 * @throws IOException if an I/O error occurs
-	 */
 	@Override
 	public void close() throws IOException {
-
+		leaderLatch.close();
+		client.close();
 	}
 
 
